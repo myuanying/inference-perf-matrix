@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>推理性能矩阵 · GPU × 模型</title>
+<style>
+  :root {
+    --bg:#f7f8fa; --panel:#fff; --ink:#101418; --ink-2:#5a6572; --ink-3:#8b95a1;
+    --line:#e3e7ec; --accent:#0f766e; --accent-soft:#e6f2f0;
+    --warn:#b45309; --warn-soft:#fdf3e3; --bad:#b91c1c;
+    --ext:#6b4fa8; --ext-soft:#f0ebfa;
+    --shadow:0 1px 2px rgba(16,20,24,.04), 0 8px 24px rgba(16,20,24,.06);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.55 -apple-system,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1560px; margin:0 auto; padding:28px 24px 80px; }
+
+  header.top { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+  h1 { font-size:21px; margin:0 0 6px; letter-spacing:-.01em; }
+  .sub { color:var(--ink-2); font-size:13px; }
+  .badge-src { display:inline-block; margin-left:8px; padding:1px 7px; border-radius:4px;
+    background:var(--accent-soft); color:var(--accent); font-size:11px; font-weight:600; vertical-align:2px; }
+  .meta-right { text-align:right; color:var(--ink-3); font-size:12px; line-height:1.7; }
+  .meta-right b { color:var(--ink-2); font-weight:600; }
+
+  .toolbar { position:sticky; top:0; z-index:30; margin:20px -24px 0; padding:11px 24px;
+    background:rgba(247,248,250,.93); backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:flex-start; gap:16px; flex-wrap:wrap; }
+  .left-tools { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .cpn { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-3); }
+  .tabs { display:flex; gap:2px; background:#eceff3; padding:3px; border-radius:8px; }
+  .tab { border:0; background:transparent; padding:6px 14px; border-radius:6px; font-size:13px;
+    color:var(--ink-2); cursor:pointer; font-family:inherit; white-space:nowrap; }
+  .tab[aria-selected="true"] { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    box-shadow:var(--shadow); margin-top:20px; overflow:hidden; }
+  .panel-head { padding:15px 20px; border-bottom:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:baseline; gap:16px; flex-wrap:wrap; }
+  .panel-head h2 { font-size:15px; margin:0; }
+  .panel-head .hint { color:var(--ink-3); font-size:12px; }
+  .ph-right { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .toggle { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:#fff;
+    color:var(--ink-2); font-family:inherit; font-size:12px; padding:4px 11px; border-radius:999px;
+    cursor:pointer; transition:.15s; white-space:nowrap; }
+  .toggle::before { content:""; width:10px; height:10px; border-radius:3px; border:1.5px solid #b7c0c9;
+    background:#fff; display:inline-block; }
+  .toggle:hover { border-color:#c9d1d9; background:#fbfcfd; }
+  .toggle[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  .toggle[aria-pressed="true"]::before { background:var(--accent); border-color:var(--accent); box-shadow:inset 0 0 0 2px #fff; }
+  .legend { display:flex; gap:16px; padding:9px 20px; border-bottom:1px solid var(--line);
+    color:var(--ink-3); font-size:11.5px; flex-wrap:wrap; align-items:center; }
+  .legend b { color:var(--ink-2); font-weight:600; }
+
+  .scroll { overflow:auto; max-height:80vh; }
+  table.matrix { border-collapse:separate; border-spacing:0; width:100%; table-layout:fixed;
+    font-variant-numeric:tabular-nums; }
+  table.matrix th, table.matrix td { border-bottom:1px solid var(--line); border-right:1px solid var(--line); }
+  table.matrix thead th { position:sticky; top:0; z-index:3; background:#fbfcfd; padding:10px 12px;
+    text-align:left; font-size:12px; font-weight:600; color:var(--ink-2); white-space:nowrap; }
+  table.matrix thead th.corner { left:0; z-index:5; }
+  table.matrix tbody th { position:sticky; left:0; z-index:2; background:#fff; padding:12px 14px;
+    text-align:left; font-size:13px; font-weight:600; border-right:1px solid var(--line);
+    white-space:normal; width:132px; line-height:1.3; }
+  table.matrix tbody th small { display:block; font-weight:400; color:var(--ink-3); font-size:11px; }
+  td.cell { padding:0; vertical-align:top; }
+  .cellbtn { display:block; width:100%; padding:11px 12px; border:0; background:transparent; text-align:left;
+    cursor:pointer; font-family:inherit; color:var(--ink); transition:background .12s; }
+  .cellbtn:hover { background:#f4f7f9; }
+  .rec + .rec { border-top:1px dashed var(--line); margin-top:8px; padding-top:8px; }
+
+  .r-main { display:flex; align-items:baseline; gap:4px; flex-wrap:wrap; }
+  .r-main .num { font-size:17px; font-weight:650; letter-spacing:-.02em; }
+  .r-main .unit { font-size:12.5px; color:var(--ink); font-weight:700; letter-spacing:-.01em; }
+  .r-main .approx { color:#0b6d63; font-size:11px; }
+  .r-scale { font-size:11.5px; color:#3f4a56; font-weight:500; margin-top:2px; }
+  .r-meta { margin-top:4px; display:flex; gap:4px; flex-wrap:wrap; }
+  .r-meta .pill { display:inline-block; background:#f2f4f6; border-radius:4px; padding:0 5px;
+    font-size:10.5px; color:#5a6572; white-space:nowrap; }
+  .r-meta .pill.pd { background:#eef4ff; color:#2c4c86; }
+  .r-meta .pill.cache { background:#eefaf3; color:#1c6b45; }
+  .r-meta .pill.inline { background:#e6f2f0; color:#0f766e; }
+  .r-meta .pill.prefill { background:#fdf3e3; color:#b45309; }
+  .r-meta .pill.dec { background:#f3eefb; color:#6b4fa8; }
+  .r-meta .pill.prec { background:#eef1f4; color:#445; font-weight:600; }
+  .r-meta .pill.off { background:#fdeaea; color:#b91c1c; }
+  .r-meta .pill.warn { background:#fdf3e3; color:#b45309; }
+  .r-meta .pill.unk { background:#f2f4f6; color:#aab2bb; }
+  .empty { color:#d4dae0; text-align:center; padding:18px 0; font-size:15px; }
+  .lv2 { background:#f8fbfa; } .lv3 { background:#eef7f5; } .lv4 { background:#dff0ec; }
+
+  table.grid { border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+  table.grid th, table.grid td { border-bottom:1px solid var(--line); padding:9px 9px; text-align:left; vertical-align:top; }
+  table.grid thead th { background:#fbfcfd; font-size:12px; color:var(--ink-2); white-space:nowrap;
+    position:sticky; top:0; z-index:2; }
+  table.grid tbody tr:hover { background:#f8fafb; }
+  td.num { text-align:right; white-space:nowrap; }
+  table.grid tr.grp td { background:#f4f7f9; padding:7px 9px; cursor:pointer; user-select:none;
+    border-bottom:1px solid var(--line); color:var(--ink-2); font-size:12px; }
+  table.grid tr.grp:hover td { background:#edf2f5; }
+  table.grid tr.grp b { color:var(--ink); font-size:12.5px; }
+  table.grid tr.grp .grp-n { color:var(--ink-3); margin-left:8px; }
+  table.grid tr.grp .caret { display:inline-block; width:14px; color:var(--ink-3); font-size:11px; }
+  .toggle[data-toggle="collapse"]::before { content:"▾"; width:auto; height:auto; border:0; background:none;
+    box-shadow:none; border-radius:0; font-size:10px; color:inherit; }
+  .toggle[data-toggle="collapse"][aria-pressed="true"]::before { content:"▸"; background:none; }
+  td.nw { white-space:nowrap; }
+  .u { font-weight:700; color:#3f4a56; font-size:11px; margin-left:2px; }
+  table.grid th[data-k="topo"] { min-width:250px; }
+  table.grid th[data-k="slo"] { min-width:200px; }
+  td.dim, .dim { color:#c3cad2; }
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:10.5px; line-height:17px;
+    background:#eef1f4; color:var(--ink-2); white-space:nowrap; }
+  .tag.real { background:var(--accent-soft); color:var(--accent); }
+  .tag.claim { background:var(--warn-soft); color:var(--warn); }
+  .tag.unk { background:#f2f4f6; color:var(--ink-3); }
+  .tag.ext { background:var(--ext-soft); color:var(--ext); font-size:10px; font-weight:600;
+    padding:0 5px; border-radius:4px; line-height:16px; vertical-align:1px; }
+  a.src { color:#0563c1; text-decoration:none; border-bottom:1px solid #cfe0f5; }
+  a.src:hover { border-bottom-color:#0563c1; }
+
+  .drawer-mask { position:fixed; inset:0; background:rgba(16,20,24,.24); opacity:0; pointer-events:none;
+    transition:.18s; z-index:40; }
+  .drawer-mask.on { opacity:1; pointer-events:auto; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(900px,96vw); background:#fff;
+    box-shadow:-12px 0 40px rgba(16,20,24,.14); transform:translateX(100%); transition:transform .22s ease;
+    z-index:41; display:flex; flex-direction:column; }
+  .drawer.on { transform:none; }
+  .drawer-head { padding:18px 22px; border-bottom:1px solid var(--line); display:flex;
+    justify-content:space-between; align-items:flex-start; gap:16px; }
+  .drawer-head h3 { margin:0 0 4px; font-size:16px; }
+  .drawer-head .sub2 { color:var(--ink-3); font-size:12px; }
+  .close { border:0; background:#f2f4f6; width:28px; height:28px; border-radius:6px; cursor:pointer;
+    font-size:15px; color:var(--ink-2); }
+  .drawer-body { overflow:auto; padding:16px 22px 28px; }
+  .rec-card { border:1px solid var(--line); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+  .rec-card .hd { background:#fbfcfd; padding:10px 14px; display:flex; justify-content:space-between;
+    gap:12px; flex-wrap:wrap; border-bottom:1px solid var(--line); align-items:center; }
+  .rec-card .hd b { font-size:14px; }
+  .rec-card .bd { padding:12px 14px; }
+  .kv { display:grid; grid-template-columns:104px 1fr; gap:6px 12px; font-size:12.5px; margin:0; }
+  .kv dt { color:var(--ink-3); }
+  .kv dd { margin:0; }
+  .note { margin:10px 0 0; padding:8px 10px; border-radius:6px; background:var(--warn-soft);
+    color:#8a4b06; font-size:12px; }
+  .note.info { background:#f2f6fb; color:#2c4c86; }
+
+  .prose { padding:20px 22px 26px; max-width:860px; }
+  .prose h3 { font-size:14px; margin:22px 0 8px; }
+  .prose h3:first-child { margin-top:0; }
+  .prose p, .prose li { color:var(--ink-2); font-size:13px; }
+  .prose code { background:#f2f4f6; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .prose ul { padding-left:20px; }
+  .hidden { display:none !important; }
+
+  /* ---------------- 封面 / 访问密码 ---------------- */
+  .cover { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    padding:24px; overflow:auto;
+    background:
+      radial-gradient(1200px 620px at 12% 8%, rgba(15,118,110,.55), transparent 62%),
+      radial-gradient(900px 520px at 92% 96%, rgba(44,76,134,.52), transparent 60%),
+      linear-gradient(160deg,#0a1118 0%,#0d1a22 55%,#08131a 100%);
+    color:#eef4f7; transition:opacity .38s ease, visibility .38s ease; }
+  .cover.off { opacity:0; visibility:hidden; pointer-events:none; }
+  .cover-card { width:min(580px,100%); padding:44px 44px 34px; border-radius:22px; text-align:center;
+    background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 30px 90px rgba(0,0,0,.5); backdrop-filter:blur(16px); }
+  .cover-kicker { font-size:11.5px; letter-spacing:.24em; color:#7fd1c4; margin-bottom:16px; text-transform:uppercase; }
+  .cover-card h2 { margin:0 0 14px; font-size:33px; line-height:1.2; letter-spacing:-.02em; font-weight:700; }
+  .cover-sub { margin:0 auto 28px; max-width:430px; font-size:13.5px; line-height:1.75; color:#b3c3cc; }
+  .cover-stats { display:flex; justify-content:center; gap:38px; margin:0 0 32px; }
+  .cover-stats div { display:flex; flex-direction:column; gap:3px; }
+  .cover-stats b { font-size:25px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .cover-stats span { font-size:11.5px; color:#8ea3ae; letter-spacing:.06em; }
+  #gateForm { display:flex; gap:8px; max-width:370px; margin:0 auto; }
+  #gatePwd { flex:1; height:44px; padding:0 15px; border-radius:11px; border:1px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:14px; outline:none; }
+  #gatePwd::placeholder { color:#7b8e98; }
+  #gatePwd:focus { border-color:#2dd4bf; box-shadow:0 0 0 3px rgba(45,212,191,.16); }
+  #gateForm button { height:44px; padding:0 22px; border-radius:11px; border:0; cursor:pointer;
+    background:#0f766e; color:#fff; font:inherit; font-size:14px; font-weight:600; transition:.15s; }
+  #gateForm button:hover { background:#11998e; }
+  .cover-err { height:18px; margin-top:10px; font-size:12px; color:#fca5a5; opacity:0; transition:opacity .2s; }
+  .cover-err.on { opacity:1; }
+  .cover-card.shake { animation:shake .32s ease; }
+  @keyframes shake { 25%{transform:translateX(-7px)} 75%{transform:translateX(7px)} }
+  .cover-note { margin-top:24px; font-size:11px; color:#6d818b; letter-spacing:.06em; }
+  @media (max-width:520px) {
+    .cover-card { padding:34px 22px 26px; }
+    .cover-card h2 { font-size:25px; }
+    .cover-stats { gap:26px; }
+    #gateForm { flex-direction:column; }
+  }
+
+</style>
+</head>
+<body>
+
+<div class="cover" id="cover">
+  <div class="cover-card" id="coverCard">
+    <div class="cover-kicker">INFERENCE PERFORMANCE MATRIX</div>
+    <h2>推理性能矩阵<br>GPU × 模型</h2>
+    <p class="cover-sub">集群吞吐与单卡吞吐两个口径，按卡型、模型逐格对照。<br>对外资料，需访问密码。</p>
+    <div class="cover-stats">
+      <div><b>6</b><span>卡型</span></div>
+      <div><b>8</b><span>模型</span></div>
+      <div><b>17</b><span>条记录</span></div>
+    </div>
+    <form id="gateForm" autocomplete="off">
+      <input id="gatePwd" type="password" placeholder="请输入访问密码" aria-label="访问密码" spellcheck="false">
+      <button type="submit">进入</button>
+    </form>
+    <div class="cover-err" id="gateErr">密码不对，再试一次</div>
+    <div class="cover-note">如需完整明细或口径说明，请联系数据提供方</div>
+  </div>
+</div>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>推理性能矩阵 · GPU × 模型<span class="badge-src">数据来自「全部明细」</span></h1>
+      <div class="sub">两个口径各一个 tab，行列保持一致，切换即可对照；格子里只留吞吐、规模、上下文、部署、缓存、精度，其余展开看。</div>
+    </div>
+    <div class="meta-right">
+      来源：<b>「全部明细」</b> · <span id="recCount">12</span> / 17 条记录<br>
+      最后更新 2026-11-06
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <nav class="tabs" id="tabs">
+      <button class="tab" data-tab="cluster" aria-selected="true">集群吞吐 (TPM)</button>
+      <button class="tab" data-tab="percard" aria-selected="false">单卡吞吐 (TGS)</button>
+      <button class="tab" data-tab="records" aria-selected="false">全部明细</button>
+      <button class="tab" data-tab="glossary" aria-selected="false">口径说明</button>
+    </nav>
+  </div>
+
+  <section class="panel" id="panel-cluster">
+    <div class="panel-head">
+      <h2>集群吞吐 · TPM（M / K）</h2>
+      <div class="ph-right">
+        <span class="hint">点格子看完整记录（SLO、并行策略、批大小、备注）</span>
+        <button class="toggle" data-toggle="hidden" aria-pressed="false">显示隐藏项</button>
+      </div>
+    </div>
+    <div class="legend" id="legend-cluster"></div>
+    <div class="scroll"><table class="matrix" id="matrix-cluster"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel hidden" id="panel-percard">
+    <div class="panel-head">
+      <h2>单卡吞吐 · tok/s per GPU</h2>
+      <div class="ph-right">
+        <span class="hint">点格子看完整记录（SLO、并行策略、批大小、备注）</span>
+        <button class="toggle" data-toggle="hidden" aria-pressed="false">显示隐藏项</button>
+      </div>
+    </div>
+    <div class="legend" id="legend-percard"></div>
+    <div class="scroll"><table class="matrix" id="matrix-percard"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel hidden" id="panel-records">
+    <div class="panel-head">
+      <h2>全部明细</h2>
+      <div class="ph-right">
+        <span class="hint">点表头排序 · 点卡型行折叠/展开</span>
+        <button class="toggle" data-toggle="collapse" aria-pressed="false">折叠全部</button>
+        <button class="toggle" data-toggle="hidden" aria-pressed="false">显示隐藏项</button>
+      </div>
+    </div>
+    <div class="scroll"><table class="grid" id="recordsTable"></table></div>
+  </section>
+
+  <section class="panel hidden" id="panel-glossary">
+    <div class="prose">
+      <h3>两个 tab 的区别</h3>
+      <p><b>集群吞吐</b>看的是整套部署跑出多少 TPM，适合回答「客户这个业务量需要几台」。<b>单卡吞吐</b>看的是每张卡的能力，适合回答「这张卡值不值」。行列在两个 tab 里完全一致，切着看就能对上同一格。</p>
+      <p>「全部明细」里同一张卡、同一个模型往往有两条以上记录（例如 Prefill-only 与 PD 一体），格子里会依次列出，数值取自各自记录。</p>
+      <p><b>两列在「全部明细」里都是现成的，页面直接展示、互不推算</b>：集群 tab 只读「服务 TPM」这一列，单卡 tab 只读「单卡 tok/s」这一列，不会拿一列去算另一列。</p>
+
+      <h3>M 与 K 两种单位</h3>
+      <p>「服务 TPM」列里写了 <code>M</code> 的（如 <code>27.15 M</code>），矩阵按 <b>M TPM</b> 显示；没写单位的（如 <code>14720</code>、<code>493,440</code>），矩阵按 <b>K TPM</b> 显示：多数原值就是 tokens/min（÷ 10³），个别填的是集群 tok/s（× 60 再 ÷ 10³，矩阵里标 <b>≈</b>）。<b>「全部明细」里一律保留原始数字，不做单位换算。</b></p>
+
+      <h3>格子里有什么、没有什么</h3>
+      <p>格子放：<b>吞吐数值 + 单位</b>、<b>规模（台数/卡数）· 输入/输出长度</b>、<b>部署方式</b>、<b>缓存命中率</b>、<b>精度</b>、<b>状态</b>。SLO、TP/EP/DP、BS、输出 TPM、客户、备注、来源全部收进详情抽屉与「全部明细」。</p>
+
+      <h3>标签</h3>
+      <ul>
+        <li><span class="tag" style="background:#eef4ff;color:#2c4c86">PD 1P1D</span> PD 分离及 Prefill/Decode 实例配比（4P1D 表示 4 组 Prefill 对 1 组 Decode）</li>
+        <li><span class="tag" style="background:#e6f2f0;color:#0f766e">PD一体</span> 不分离，同一实例做 prefill + decode</li>
+        <li><span class="tag" style="background:#fdf3e3;color:#b45309">Prefill-only</span> 只测 prefill 阶段，没有端到端 TTFT/TPOT</li>
+        <li><span class="tag" style="background:#f3eefb;color:#6b4fa8">Decode-only（忽略 prefill）</span> 只测 decode 阶段，prefill 不计入</li>
+        <li><span class="tag" style="background:#eef1f4;color:#445;font-weight:600">NVFP4</span> 量化精度；没标的为「原生」（不量化）</li>
+        <li><span class="tag" style="background:#fdeaea;color:#b91c1c">未开放</span> 该配置尚未对外，默认隐藏</li>
+      </ul>
+
+      <h3>显示隐藏项</h3>
+      <p>表格右上角（集群 / 单卡 / 全部明细三个表都有）的「显示隐藏项」默认关闭：状态为 <b>未开放</b> 的 5 条记录不参与矩阵、明细与计数 —— GB300 的 4 条（DeepSeek-V3.2 ×2、DeepSeek-R1 ×2）和 B200 × GLM5.2 这一条。所以默认视图里没有 GB300、B200 两列，也没有 DeepSeek-V3.2 这一行；勾选后它们才出现，格子里的记录数也会跟着变。</p>
+
+      <h3>卡型顺序与分组</h3>
+      <p>矩阵里卡型的列顺序跟「全部明细」里第一次出现的顺序一致：GB300 → B200 → B300 → H200 → 摩尔线程 → 海光 BW500SM（默认隐藏 GB300、B200）。「全部明细」也按卡型分段，段头一行是卡型名 + 记录数，点一下折叠 / 展开；右上角「折叠全部」能把所有组一次收起，收起后按钮变成「展开全部」。组内仍按当前排序规则排。</p>
+
+      <h3>置信等级</h3>
+      <ul>
+        <li><span class="tag real">实测</span> 有完整压测记录、条件可追溯</li>
+        <li><span class="tag claim">宣称</span> 口头估算或厂商口径，未独立复现</li>
+        <li><span class="tag unk">未标注</span> 来源存在但缺关键条件</li>
+      </ul>
+
+      <h3>数据口径注意事项</h3>
+      <ul>
+        <li>摩尔线程两条记录（<code>667,808</code> 与 <code>63,840</code>）的集群 TPM 和单卡 tok/s 差别较大，属于 decode 口径的正常现象；两列各自按原始值展示。</li>
+        <li>Prefill-only / Decode-only 的行没有端到端 TTFT/TPOT，不能和 PD 一体、PD 分离的 TPM 直接比。</li>
+        <li>缓存列原始值是 0 / 0.8 / 0.9 的命中率，「全部明细」保留原值，矩阵格子里显示成 0% / 80% / 90%；0 表示未启用前缀缓存。</li>
+        <li>GB300 四条、B200 × GLM5.2 一条的状态为「未开放」，默认隐藏（点表格右上角「显示隐藏项」可显示）。</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div><h3 id="drawerTitle">—</h3><div class="sub2" id="drawerSub"></div></div>
+    <button class="close" id="drawerClose" aria-label="关闭">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<script>
+/* ---------------- 数据 ----------------
+   由「全部明细」的数据生成，字段与原始记录一一对应：
+   gpu 卡型 / model 模型 / precision 精度 / status 状态 / belong 归属 /
+   tpm 服务 TPM（统一成 M TPM）/ tgs 单卡 tok/s / outTpm 输出 TPM /
+   scale 规模 / cond 输入/输出 / cache 缓存 / bs BS / deploy 部署方式 /
+   topo 并行策略 / testTime 测试时间 / slo SLO / remark 备注 / customer 客户 / src 来源
+--------------------------------------- */
+const RECORDS = [
+  {"gpu": "GB300", "model": "DeepSeek-V3.2", "precision": "NVFP4", "status": "未开放", "belong": "vllm 联合测试", "tpm": 0.8832, "tpmText": "883.2", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "14720", "tgs": 7360.0, "tgsRaw": "7360", "cards": 2, "scale": "2 卡", "scaleRaw": "2卡", "cond": "2K/1", "cache": 0.0, "bs": 64, "deploy": "Prefill-only", "topo": "TP2", "testTime": "2026-03-25 17:20", "customer": "—", "src": "GB300博客最终稿", "conf": "real"},
+  {"gpu": "GB300", "model": "DeepSeek-V3.2", "precision": "NVFP4", "status": "未开放", "belong": "vllm 联合测试", "tpm": 0.3379, "tpmText": "337.92", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "5632", "tgs": 2816.0, "tgsRaw": "2816", "cards": 2, "scale": "2 卡", "scaleRaw": "2卡", "cond": "2K/1K", "cache": 0.0, "bs": 256, "deploy": "PD一体", "topo": "TP2", "testTime": "2026-03-25 17:20", "slo": ["TTFT:2278ms", "TPOT:28ms"], "customer": "—", "src": "GB300博客最终稿", "conf": "real"},
+  {"gpu": "GB300", "model": "DeepSeek-R1", "precision": "NVFP4", "status": "未开放", "belong": "vllm 联合测试", "tpm": 2.6971, "tpmText": "2,697", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "44952", "tgs": 22476.0, "tgsRaw": "22476", "cards": 2, "scale": "2 卡", "scaleRaw": "2卡", "cond": "2K/1", "cache": 0.0, "bs": 256, "deploy": "Prefill-only", "topo": "EP2", "testTime": "2026-03-25 17:20", "customer": "—", "src": "GB300博客最终稿", "conf": "real"},
+  {"gpu": "GB300", "model": "DeepSeek-R1", "precision": "NVFP4", "status": "未开放", "belong": "vllm 联合测试", "tpm": 0.3686, "tpmText": "368.64", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "6144", "tgs": 3072.0, "tgsRaw": "3072", "cards": 2, "scale": "2 卡", "scaleRaw": "2卡", "cond": "2K/1K", "cache": 0.0, "bs": 256, "deploy": "PD一体", "topo": "TP2", "testTime": "2026-03-25 17:20", "slo": ["TTFT:840ms", "TPOT:28ms"], "customer": "—", "src": "GB300博客最终稿", "conf": "real"},
+  {"gpu": "B200", "model": "GLM5.2", "precision": "NVFP4", "status": "未开放", "belong": "项目验证", "tpm": 3.88, "tpmText": "3.88", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "3.88 M", "tgs": 8103.0, "tgsRaw": "8103", "outTpm": "117868", "nodes": 1, "cards": 8, "scale": "1 台 · 8 卡", "scaleRaw": "单台 · 8卡", "cond": "32K/1K", "cache": 0.8, "deploy": "1P1D", "topo": "P：1实例 * 4卡，TP4DP1\nD：1实例 * 4卡，TP1DP4EP", "testTime": "2026-08-18", "slo": ["完整SLO达标：P90 TTFT 12.585s", "P90 TPOT 36.18ms"], "remark": "硬件网络性能不佳", "customer": "腾讯资方", "src": "B200 性能摸底", "conf": "real"},
+  {"gpu": "B300", "model": "GLM5.2", "precision": "NVFP4", "status": "开放", "belong": "项目验证", "tpm": 27.15, "tpmText": "27.15", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "27.15 M", "tgs": 18856.4, "tgsRaw": "18856.4", "nodes": 3, "cards": 24, "scale": "3 台 · 24 卡", "scaleRaw": "3台 · 24卡", "cond": "16K/1K", "cache": 0.8, "deploy": "4P1D", "topo": "4P1DP：4实例 × 4卡，TP1DP4EPD：1实例 × 8卡，TP1DP8EP共16P卡 + 8D卡", "testTime": "2026-07-28", "slo": ["平均TTFT 2.458s", "P90 TTFT 3.977s", "平均TPOT 19.38ms", "P90 TPOT 22.76ms"], "customer": "腾讯", "src": "GLM 5.2 博客【数据部分】", "conf": "real"},
+  {"gpu": "B300", "model": "Kimi K3", "precision": "NVFP4", "status": "开放", "belong": "生产压测", "tpm": 8.5, "tpmText": "8.5", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "8.5 M", "tgs": 8860.0, "tgsRaw": "8860", "nodes": 2, "cards": 16, "scale": "2 台 · 16 卡", "scaleRaw": "2 台 · 16 卡", "cond": "128K/1K", "cache": 0.9, "bs": 256, "deploy": "1P1D", "topo": "P：1实例 × 8卡，TP4DP2EP\nD：1实例 × 8卡，TP4DP2EP", "testTime": "2026-08-13 13:41", "slo": ["P50 6.93s", "P90 17.94s", "平均9.26s"], "customer": "润道", "src": "Kimi K3 带缓存性能测试报告", "conf": "real"},
+  {"gpu": "H200", "model": "GLM5.2", "precision": "原生", "status": "开放", "belong": "生产压测", "tpm": 11.46, "tpmText": "11.46", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "11.46 M", "tgs": 3978.0, "tgsRaw": "3978", "nodes": 6, "cards": 48, "scale": "6 台 · 48 卡", "scaleRaw": "6 台 · 48 卡", "cond": "128K/1K", "cache": 0.9, "bs": 384, "deploy": "3P3D", "topo": "P：3实例 × 8卡，TP2DP4EP\nD：3实例 × 8卡，TP1DP8EP\n共24P卡 + 24D卡", "testTime": "2026-08-18", "slo": ["P50 9.25s", "P90 30.92s", "平均14.08s"], "customer": "润道", "src": "GLM 5.2 性能压测 - 测试过程", "conf": "real"},
+  {"gpu": "H200", "model": "GLM5.3", "precision": "原生", "status": "开放", "belong": "生产压测", "tpm": 5.54, "tpmText": "5.54", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "5.54 M", "tgs": 5770.0, "tgsRaw": "5770", "nodes": 2, "cards": 16, "scale": "2 台 · 16 卡", "scaleRaw": "2 台 · 16 卡", "cond": "64K/500", "cache": 0.9, "deploy": "1P1D", "testTime": "2026-09-04", "slo": ["平均 TTFT 5.4s", "TPOT 46.73ms"], "customer": "润道", "src": "GLM 5.3 性能压测 - 测试过程", "conf": "real"},
+  {"gpu": "H200", "model": "GLM5.3", "precision": "原生", "status": "开放", "belong": "生产压测", "tpm": 11.35, "tpmText": "11.35", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "11.35 M", "tgs": 23648.0, "tgsRaw": "23648", "nodes": 1, "cards": 8, "scale": "1 台 · 8 卡", "scaleRaw": "单台 · 8 卡", "cond": "64K/1", "cache": 0.9, "bs": 16, "deploy": "Prefill-only", "testTime": "2026-09-04", "slo": ["平均 TTFT 5.3s"], "customer": "—", "src": "GLM 5.3 性能压测 - 测试过程", "conf": "real"},
+  {"gpu": "H200", "model": "Minimax M2.5", "precision": "原生", "status": "开放", "belong": "项目验证", "tpm": 3.8, "tpmText": "3.8", "tpmUnit": "M TPM", "tpmKind": "M", "tpmRaw": "3.8 M", "tgs": 3962.0, "tgsRaw": "3962", "outTpm": "486060", "nodes": 2, "cards": 16, "scale": "2 台 · 16 卡", "scaleRaw": "2 台 · 16 卡", "cond": "4K/600", "cache": 0.0, "bs": 340, "deploy": "2P2D", "topo": "TP=4 + EP", "testTime": "2026-02-28", "slo": ["P90_TTFT：1.8s", "P90_TPOT：38ms"], "customer": "润道", "src": "MiniMax-M2.5部署", "conf": "real"},
+  {"gpu": "摩尔线程", "model": "DeepSeek-R1", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 0.6678, "tpmText": "667.81", "tpmUnit": "K TPM", "tpmKind": "alt", "tpmAlt": true, "tpmRaw": "667,808", "tgs": 2608.0, "tgsRaw": "2608", "nodes": 2, "cards": 16, "scale": "2 台 · 16 卡", "scaleRaw": "2台 16卡", "cond": "4K/1", "cache": 0.0, "deploy": "Prefill-only", "testTime": "2026-04-01", "slo": ["Avg_TTFT：5.13s"], "customer": "—", "src": "摩尔线程 - DS-R1", "conf": "real"},
+  {"gpu": "摩尔线程", "model": "DeepSeek-R1", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 0.0638, "tpmText": "63.84", "tpmUnit": "K TPM", "tpmKind": "alt", "tpmAlt": true, "tpmRaw": "63,840", "tgs": 62.3, "tgsRaw": "62.3", "nodes": 4, "cards": 32, "scale": "4 台 · 32 卡", "scaleRaw": "4台 · 32 卡", "cond": "1K/4K", "cache": 0.0, "deploy": "decode-only（忽略prefill）", "testTime": "2026-04-01", "slo": ["Avg_TTFT：2.22s", "Avg_TPOT：41ms"], "remark": "decode 最佳值", "customer": "—", "src": "摩尔线程 - DS-R1", "conf": "real"},
+  {"gpu": "摩尔线程", "model": "GLM4.7", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 0.4934, "tpmText": "493.44", "tpmUnit": "K TPM", "tpmKind": "permin", "tpmRaw": "493,440", "tgs": 1028.0, "tgsRaw": "1028", "nodes": 1, "cards": 8, "scale": "1 台 · 8 卡", "scaleRaw": "单台 · 8 卡", "cond": "4K/1", "cache": 0.0, "deploy": "Prefill-only", "testTime": "2026-04-01", "slo": ["Avg_TTFT：23s"], "customer": "—", "src": "测试结果", "conf": "unk"},
+  {"gpu": "摩尔线程", "model": "GLM4.7", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 0.0763, "tpmText": "76.32", "tpmUnit": "K TPM", "tpmKind": "permin", "tpmRaw": "76,320", "tgs": 53.0, "tgsRaw": "53", "nodes": 3, "cards": 24, "scale": "3 台 · 24 卡", "scaleRaw": "3台 · 24 卡", "cond": "1K/1K", "cache": 0.0, "deploy": "decode-only（忽略prefill）", "testTime": "2026-04-01", "slo": ["Avg_TTFT：0.66s", "Avg_TPOT：27ms"], "customer": "—", "src": "测试结果", "conf": "unk"},
+  {"gpu": "海光 BW500SM", "model": "Qwen3-30B-A3B", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 1.68, "tpmText": "1,680", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "28,000", "tgs": 14000.0, "tgsRaw": "14000", "cards": 2, "scale": "2 卡", "scaleRaw": "2 卡", "cache": 0.0, "deploy": "prefill-only", "testTime": "2026-04-01", "customer": "—", "src": "海光性能测试", "conf": "real"},
+  {"gpu": "海光 BW500SM", "model": "Qwen3-30B-A3B", "precision": "原生", "status": "开放", "belong": "联合优化", "tpm": 0.6118, "tpmText": "611.76", "tpmUnit": "K TPM", "tpmKind": "toks", "tpmDerived": true, "tpmRaw": "10,196", "tgs": 5098.0, "tgsRaw": "5098", "cards": 2, "scale": "2 卡", "scaleRaw": "2卡", "cond": "2K/256", "cache": 0.0, "deploy": "PD一体", "testTime": "2026-04-01", "slo": ["TTFT 4s", "TPOT 40ms"], "customer": "—", "src": "海光性能测试", "conf": "real"},
+];
+
+/* 「来源」列只有标题，链接按标题去重后补上（没有的就只显示标题） */
+const SRC = {
+  "推理优化历史数据小小结":       "https://daocloud.feishu.cn/wiki/HrdtwojIwiIq2UkJd1ZcHmj3nLd",
+  "GB300博客最终稿":             "https://daocloud.feishu.cn/wiki/ZBU7wbkdziOT5NkZWtecBRX8nfh",
+  "B200 性能摸底":               "https://daocloud.feishu.cn/wiki/Xst6wdXgnilqvjkfgp3cc4z0nWb",
+  "GLM 5.2 博客【数据部分】":     "https://daocloud.feishu.cn/wiki/ARGQw5qBDigaHjkVk0dcFVNvnGh",
+  "Kimi K3 带缓存性能测试报告":   "https://daocloud.feishu.cn/wiki/UMThwtGNWitzVCkqnyvcZq9nnOg",
+  "GLM 5.2 性能压测 - 测试过程":  "https://daocloud.feishu.cn/wiki/HMw0wRTaPi65Oykzygucp4GhnRc",
+  "GLM 5.3 性能压测 - 测试过程":  "https://daocloud.feishu.cn/wiki/OcnYwvOuIiVYShk47ZpcnavnnOb",
+  "MiniMax-M2.5部署":            "https://daocloud.feishu.cn/wiki/QxU0wkPjlizAQJkrj2VcoCnWnfg",
+  "摩尔线程 - DS-R1":            "https://daocloud.feishu.cn/wiki/CU67wxIdTiwQ4rk40TFc9EHRn4c",
+  "测试结果":                    "https://daocloud.feishu.cn/wiki/CU67wxIdTiwQ4rk40TFc9EHRn4c",
+  "海光性能测试":                "https://daocloud.feishu.cn/wiki/IfIlwQeZPi2GrTkME9gcUo84nXf",
+};
+
+/* ---------------- 工具 ---------------- */
+const $ = s => document.querySelector(s);
+const state = { tab:"cluster", sortKey:"tpm", sortDir:-1, showHidden:false, collapsed:new Set() };
+
+/* 未开放的数据默认不展示，右上角「显示隐藏项」打开后才参与渲染 */
+const visibleRecords = () => state.showHidden ? RECORDS
+  : RECORDS.filter(r => r.status !== "未开放");
+const hiddenCount = () => RECORDS.filter(r => r.status === "未开放").length;
+
+function syncToggles() {
+  document.querySelectorAll('[data-toggle="hidden"]').forEach(b => {
+    b.setAttribute("aria-pressed", String(state.showHidden));
+    b.textContent = `显示隐藏项（${hiddenCount()}）`;
+  });
+  const c = $("#recCount");
+  if (c) c.textContent = visibleRecords().length;
+  const gpus = [...new Set(visibleRecords().map(r => r.gpu))];
+  const allClosed = gpus.length > 0 && gpus.every(g => state.collapsed.has(g));
+  document.querySelectorAll('[data-toggle="collapse"]').forEach(b => {
+    b.setAttribute("aria-pressed", String(allClosed));
+    b.textContent = allClosed ? "展开全部" : "折叠全部";
+  });
+}
+function renderAll() {
+  renderMatrix("cluster"); renderMatrix("percard"); renderRecords(); syncToggles();
+}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const nl2br = s => esc(s).replace(/\n/g, "<br>");
+const DASH = '<span class="dim">—</span>';
+const pct = v => Math.round(v * 100) + "%";
+
+/* 集群：>=10 一位小数，>=1 两位，<1 三位有效数字；优先用原样的 M 值 */
+const fmtTpm = v => v >= 10 ? String(+v.toFixed(1))
+                 : v >= 1 ? String(+v.toFixed(2))
+                 : String(+v.toPrecision(3));
+const fmtPer = v => Math.round(v).toLocaleString("en-US");
+
+const confTag = c => ({ real:'<span class="tag real">实测</span>',
+                        claim:'<span class="tag claim">宣称</span>',
+                        unk:'<span class="tag unk">未标注</span>' }[c] || '<span class="tag unk">未标注</span>');
+
+const srcLink = r => SRC[r.src]
+  ? `<a class="src" href="${SRC[r.src]}" target="_blank" rel="noopener">${esc(r.src)}</a>`
+  : esc(r.src || "—");
+
+/* 部署方式：PD 分离配比 / PD 一体 / Prefill-only / Decode-only */
+function deployMeta(r) {
+  const d = r.deploy || "";
+  if (!d) return { label:"部署未标注", cls:"unk" };
+  if (/^decode/i.test(d)) return { label:"Decode-only" + (/忽略/.test(d) ? "（忽略 prefill）" : ""), cls:"dec" };
+  if (/^prefill/i.test(d)) return { label:"Prefill-only", cls:"prefill" };
+  const m = /^(\d+)P(\d+)D$/.exec(d);
+  if (m) return { label:`PD ${m[1]}P${m[2]}D`, cls:"pd" };
+  if (/^PD分离/.test(d)) return { label:d, cls:"pd" };
+  if (/^PD一体/.test(d)) return { label:"PD一体", cls:"inline" };
+  return { label:d, cls:"unk" };
+}
+
+/* 按 tab 口径给出「数值 + 是否为换算」 */
+function valueFor(r, basis) {
+  if (basis === "cluster") {
+    if (r.tpm != null)
+      return { v:r.tpm, unit:r.tpmUnit || "M TPM", text:r.tpmText || fmtTpm(r.tpm), derived:!!r.tpmDerived };
+    return null;
+  }
+  if (r.tgs != null) return { v:r.tgs, unit:"tok/s", text:fmtPer(r.tgs), derived:false };
+  return null;
+}
+
+/* 格子：只放数值、规模 · 上下文、部署、缓存、精度、状态 */
+function recCell(r, basis) {
+  const v = valueFor(r, basis);
+  if (!v) return "";
+  const d = deployMeta(r);
+  const pills = [`<span class="pill ${d.cls}">${esc(d.label)}</span>`];
+  if (r.cache > 0) pills.push(`<span class="pill cache">缓存 ${pct(r.cache)}</span>`);
+  if (r.precision && r.precision !== "原生") pills.push(`<span class="pill prec">${esc(r.precision)}</span>`);
+  if (r.status === "未开放") pills.push(`<span class="pill off">未开放</span>`);
+  const meta = [r.scale, r.cond].filter(Boolean).map(esc).join(" · ");
+  return `<div class="rec">
+      <div class="r-main">
+        ${v.derived ? '<span class="approx">≈</span>' : ""}
+        <span class="num">${v.text}</span><span class="unit">${v.unit}</span>
+      </div>
+      ${meta ? `<div class="r-scale">${meta}</div>` : ""}
+      <div class="r-meta">${pills.join("")}</div>
+    </div>`;
+}
+
+/* ---------------- 矩阵 ---------------- */
+/* 卡型顺序跟着原始记录里的顺序走（第一次出现的先后） */
+const GPU_ORDER = [...new Set(RECORDS.map(r => r.gpu))];
+const MODEL_ORDER = ["GLM5.3","GLM5.2","GLM4.7","Kimi K3","Minimax M2.5",
+                     "DeepSeek-V3.2","DeepSeek-R1","Qwen3-30B-A3B"];
+const gpusOf = rows => GPU_ORDER.filter(g => rows.some(r => r.gpu === g));
+const modelsOf = rows => MODEL_ORDER.filter(m => rows.some(r => r.model === m))
+  .concat([...new Set(rows.map(r => r.model))].filter(m => !MODEL_ORDER.includes(m)));
+
+function renderMatrix(basis) {
+  const table = $(`#matrix-${basis}`);
+  const rows = visibleRecords();
+  const GPUS = gpusOf(rows), MODELS = modelsOf(rows);
+  const byCell = new Map();
+  for (const r of rows) {
+    if (!valueFor(r, basis)) continue;
+    const k = r.gpu + "||" + r.model;
+    if (!byCell.has(k)) byCell.set(k, []);
+    byCell.get(k).push(r);
+  }
+
+  const vals = [...byCell.values()].flat().map(r => valueFor(r, basis).v);
+  const max = Math.max(...vals, 1);
+  const level = r => {
+    const ratio = valueFor(r, basis).v / max;
+    return ratio > .5 ? "lv4" : ratio > .12 ? "lv3" : "lv2";
+  };
+
+  table.querySelector("thead").innerHTML =
+    `<tr><th class="corner">模型 \\ 显卡</th>${GPUS.map(g => `<th>${esc(g)}</th>`).join("")}</tr>`;
+
+  table.querySelector("tbody").innerHTML = MODELS.map(m => {
+    const cells = GPUS.map(g => {
+      const k = g + "||" + m;
+      const list = byCell.get(k);
+      if (!list) {
+        const recs = rows.filter(r => r.gpu === g && r.model === m);
+        if (!recs.length) return `<td class="cell"><div class="empty">–</div></td>`;
+        const ob = basis === "cluster" ? "单卡" : "集群";
+        return `<td class="cell"><div class="empty" style="font-size:11px;padding:16px 12px;text-align:left">
+          仅${ob}口径<br><span style="font-size:10.5px">切到「${ob}吞吐」查看</span></div></td>`;
+      }
+      const sorted = [...list].sort((a, b) => valueFor(b, basis).v - valueFor(a, basis).v);
+      return `<td class="cell"><button class="cellbtn ${level(sorted[0])}" data-gpu="${esc(g)}" data-model="${esc(m)}">
+        ${sorted.map(r => recCell(r, basis)).join("")}</button></td>`;
+    }).join("");
+    const n = rows.filter(r => r.model === m).length;
+    return `<tr><th>${esc(m)}<small>${n} 条记录</small></th>${cells}</tr>`;
+  }).join("");
+
+  table.querySelectorAll(".cellbtn").forEach(b =>
+    b.addEventListener("click", () => openDrawer(b.dataset.gpu, b.dataset.model)));
+
+  $(`#legend-${basis}`).innerHTML = (basis === "cluster"
+    ? `<span><b>M / K TPM</b> 集群总吞吐（原始值）</span>`
+    : `<span><b>tok/s</b> 每卡吞吐（原始值）</span>`) +
+    `<span><b>台/卡 · 上下文</b> 部署规模与输入/输出长度</span>
+     <span><b>部署</b> PD 分离 / PD 一体 / Prefill-only / Decode-only</span>
+     <span><b>缓存</b> 前缀缓存命中率</span>
+     <span><b>NVFP4</b> 量化精度（未标为原生）</span>
+     <span><span class="tag" style="background:#fdeaea;color:#b91c1c">未开放</span> 尚未对外（默认隐藏）</span>`;
+}
+
+/* ---------------- 抽屉：完整信息 ---------------- */
+function openDrawer(gpu, model) {
+  const list = RECORDS.filter(r => r.gpu === gpu && r.model === model);
+  $("#drawerTitle").textContent = `${gpu} × ${model}`;
+  $("#drawerSub").textContent = `${list.length} 条记录`;
+
+  $("#drawerBody").innerHTML = list.map(r => {
+    const head = r.tpm != null ? `${r.tpmText || fmtTpm(r.tpm)} ${r.tpmUnit || "M TPM"}` : `${fmtPer(r.tgs)} tok/s`;
+    const pills = [`<span class="tag">${esc(r.scale || "规模未标注")}</span>`,
+                   `<span class="tag ${r.status === "未开放" ? "claim" : ""}">${esc(r.status || "状态未标注")}</span>`,
+                   confTag(r.conf)].join(" ");
+
+    const rows = [
+      ["精度 / 归属", [r.precision, r.belong].filter(Boolean).map(esc).join(" · ") || "—"],
+      ["部署方式", `${esc(r.deploy || "未标注")}${r.topo ? `<br><span class="dim">并行：</span>${nl2br(r.topo)}` : ""}`],
+      ["输入 / 输出", [r.cond && `上下文 ${esc(r.cond)}`, r.bs != null && `BS ${r.bs}`].filter(Boolean).join(" · ") || "—"],
+      ["缓存命中", r.cache != null ? pct(r.cache) : DASH],
+      ["单卡 tok/s", r.tgsRaw ? esc(r.tgsRaw) : DASH],
+      ["SLO", (r.slo && r.slo.length) ? r.slo.map(esc).join("<br>") : "未标注"],
+      ["测试时间", esc(r.testTime || "未标注")],
+      ["客户", esc(r.customer || "—")],
+      r.outTpm ? ["输出 TPM", esc(r.outTpm)] : null,
+      r.remark ? ["备注", esc(r.remark)] : null,
+      ["原始文档", srcLink(r)],
+    ].filter(Boolean);
+
+    return `<div class="rec-card">
+      <div class="hd">
+        <b>${head}</b>
+        <span>${pills}</span>
+      </div>
+      <div class="bd">
+        <dl class="kv">
+          ${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}
+        </dl>
+
+      </div>
+    </div>`;
+  }).join("");
+
+  $("#drawer").classList.add("on");
+  $("#drawer").setAttribute("aria-hidden", "false");
+  $("#mask").classList.add("on");
+}
+function closeDrawer() {
+  $("#drawer").classList.remove("on");
+  $("#drawer").setAttribute("aria-hidden", "true");
+  $("#mask").classList.remove("on");
+}
+
+/* ---------------- 全部明细 ---------------- */
+const COLS = [
+  ["gpu","卡型","nw"], ["model","模型","nw"], ["precision","精度","nw"], ["status","状态","nw"],
+  ["belong","归属","nw"], ["tpm","集群 TPM","num"], ["tgs","单卡 tok/s","num"],
+  ["cards","规模","nw"], ["cond","输入/输出","nw"], ["cache","缓存","num"], ["bs","BS","num"],
+  ["deploy","部署","nw"], ["testTime","测试时间","nw"], ["conf","置信"], ["slo","SLO"],
+  ["topo","并行策略"], ["outTpm","输出 TPM","num"], ["remark","备注"], ["customer","客户","nw"], ["src","来源"],
+];
+const VAL = {
+  gpu: r => esc(r.gpu),
+  model: r => esc(r.model),
+  precision: r => r.precision ? esc(r.precision) : DASH,
+  status: r => esc(r.status || "—"),
+  belong: r => esc(r.belong || "—"),
+  tpm: r => r.tpmRaw ? esc(r.tpmRaw) : DASH,
+  tgs: r => r.tgsRaw ? esc(r.tgsRaw) : DASH,
+  outTpm: r => r.outTpm ? esc(r.outTpm) : DASH,
+  cards: r => r.scaleRaw || r.scale || DASH,
+  cond: r => r.cond || DASH,
+  cache: r => r.cache != null ? String(r.cache) : DASH,
+  bs: r => r.bs != null ? r.bs : DASH,
+  deploy: r => r.deploy ? esc(r.deploy) : DASH,
+  topo: r => r.topo ? nl2br(r.topo) : DASH,
+  testTime: r => esc(r.testTime || "—"),
+  conf: r => confTag(r.conf),
+  slo: r => (r.slo && r.slo.length) ? esc(r.slo.join("；")) : DASH,
+  remark: r => r.remark ? esc(r.remark) : DASH,
+  customer: r => esc(r.customer || "—"),
+  src: r => srcLink(r),
+};
+const SORT_NUM = new Set(["tpm","tgs","cards","bs","cache","outTpm"]);
+
+function renderRecords() {
+  const rows = [...visibleRecords()];
+  const k = state.sortKey;
+  if (k) {
+    const val = r => SORT_NUM.has(k) ? (parseFloat(r[k]) || 0) : String(r[k] ?? "");
+    rows.sort((a, b) => {
+      const x = val(a), y = val(b);
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), "zh")) * state.sortDir;
+    });
+  }
+  /* 按卡型分组 */
+  const groups = [];
+  const byGpu = new Map();
+  for (const r of rows) {
+    let g = byGpu.get(r.gpu);
+    if (!g) { g = { gpu:r.gpu, rows:[] }; byGpu.set(r.gpu, g); groups.push(g); }
+    g.rows.push(r);
+  }
+
+  /* 组的先后固定跟原始记录里的卡型顺序，不随排序跳动 */
+  groups.sort((x, y) => GPU_ORDER.indexOf(x.gpu) - GPU_ORDER.indexOf(y.gpu));
+
+  const body = groups.map(g => {
+    const closed = state.collapsed.has(g.gpu);
+    const head = `<tr class="grp" data-gpu="${esc(g.gpu)}" title="${closed ? "展开" : "折叠"} ${esc(g.gpu)}">
+        <td colspan="${COLS.length}">
+          <span class="caret">${closed ? "▸" : "▾"}</span><b>${esc(g.gpu)}</b>
+          <span class="grp-n">${g.rows.length} 条记录</span>
+          ${closed ? '<span class="grp-n">已折叠 · 点这行展开</span>' : ""}
+        </td></tr>`;
+    if (closed) return head;
+    return head + g.rows.map(r => `<tr>${COLS.map(([key, , cls]) =>
+      `<td class="${cls || ""}">${VAL[key](r)}</td>`).join("")}</tr>`).join("");
+  }).join("");
+
+  $("#recordsTable").innerHTML = `<thead><tr>${COLS.map(([key, t]) =>
+      `<th data-k="${key}" style="cursor:pointer">${t}${state.sortKey === key ? (state.sortDir > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}
+      </tr></thead><tbody>` + body + "</tbody>";
+
+  $("#recordsTable").querySelectorAll("tr.grp").forEach(tr => {
+    tr.addEventListener("click", () => {
+      const gpu = tr.dataset.gpu;
+      if (state.collapsed.has(gpu)) state.collapsed.delete(gpu); else state.collapsed.add(gpu);
+      renderRecords(); syncToggles();
+    });
+  });
+
+  $("#recordsTable").querySelectorAll("th[data-k]").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.k;
+      if (state.sortKey === key) state.sortDir *= -1;
+      else { state.sortKey = key; state.sortDir = SORT_NUM.has(key) ? -1 : 1; }
+      renderRecords();
+    });
+  });
+}
+
+/* ---------------- 交互 ---------------- */
+document.querySelectorAll("#tabs .tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    closeDrawer();
+    state.tab = tab.dataset.tab;
+    document.querySelectorAll("#tabs .tab").forEach(t =>
+      t.setAttribute("aria-selected", String(t.dataset.tab === state.tab)));
+    for (const t of ["cluster", "percard", "records", "glossary"])
+      $("#panel-" + t).classList.toggle("hidden", t !== state.tab);
+  });
+});
+$("#mask").addEventListener("click", closeDrawer);
+$("#drawerClose").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+document.querySelectorAll('[data-toggle="hidden"]').forEach(b =>
+  b.addEventListener("click", () => { state.showHidden = !state.showHidden; renderAll(); }));
+document.querySelectorAll('[data-toggle="collapse"]').forEach(b =>
+  b.addEventListener("click", () => {
+    const gpus = [...new Set(visibleRecords().map(r => r.gpu))];
+    const allClosed = gpus.length && gpus.every(g => state.collapsed.has(g));
+    state.collapsed = allClosed ? new Set() : new Set(gpus);
+    renderRecords(); syncToggles();
+  }));
+
+renderAll();
+</script>
+
+<script>
+/* ---------------- 访问密码（SHA-256，仅用于入口校验） ---------------- */
+(function () {
+  var PASS_SHA256 = "9961366942d03a30c5fabed9118521f9899112af4cdf93704b5a195b5190dbca";
+  var KEY = "ipm.unlocked";
+  var cover = document.getElementById("cover");
+  var card = document.getElementById("coverCard");
+  var form = document.getElementById("gateForm");
+  var input = document.getElementById("gatePwd");
+  var err = document.getElementById("gateErr");
+
+  function sha256(ascii) {
+    function rightRotate(v, a) { return (v >>> a) | (v << (32 - a)); }
+    var mathPow = Math.pow, maxWord = mathPow(2, 32), result = "", words = [], asciiBitLength = ascii.length * 8;
+    var hash = sha256.h = sha256.h || [], k = sha256.k = sha256.k || [], primeCounter = k.length;
+    var isComposite = {};
+    for (var candidate = 2; primeCounter < 64; candidate++) {
+      if (!isComposite[candidate]) {
+        for (var i = 0; i < 313; i += candidate) isComposite[i] = candidate;
+        hash[primeCounter] = (mathPow(candidate, .5) * maxWord) | 0;
+        k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+      }
+    }
+    ascii += "\x80";
+    while (ascii.length % 64 - 56) ascii += "\x00";
+    for (i = 0; i < ascii.length; i++) {
+      var j = ascii.charCodeAt(i);
+      if (j >> 8) return "";
+      words[i >> 2] |= j << ((3 - i) % 4) * 8;
+    }
+    words[words.length] = ((asciiBitLength / maxWord) | 0);
+    words[words.length] = (asciiBitLength);
+    for (var jj = 0; jj < words.length;) {
+      var w = words.slice(jj, jj += 16), oldHash = hash;
+      hash = hash.slice(0, 8);
+      for (i = 0; i < 64; i++) {
+        var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+        var temp1 = hash[7] + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+          ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] +
+          (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+            w[i - 7] + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
+        var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+          ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+        hash = [(temp1 + temp2) | 0].concat(hash);
+        hash[4] = (hash[4] + temp1) | 0;
+      }
+      for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+    for (i = 0; i < 8; i++) {
+      for (var j3 = 3; j3 + 1; j3--) {
+        var b = (hash[i] >> (j3 * 8)) & 255;
+        result += ((b < 16) ? 0 : "") + b.toString(16);
+      }
+    }
+    return result;
+  }
+
+  function unlock() {
+    cover.classList.add("off");
+    setTimeout(function () { cover.style.display = "none"; }, 420);
+  }
+
+  try { if (sessionStorage.getItem(KEY) === "1") { unlock(); return; } } catch (e) {}
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var norm = input.value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (norm && sha256(norm) === PASS_SHA256) {
+      try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+      err.classList.remove("on");
+      unlock();
+    } else {
+      err.classList.add("on");
+      card.classList.remove("shake");
+      void card.offsetWidth;
+      card.classList.add("shake");
+      input.select();
+    }
+  });
+  input.focus();
+})();
+</script>
+
+</body>
+</html>
