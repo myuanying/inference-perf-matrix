@@ -155,67 +155,40 @@
   .prose code { background:#f2f4f6; padding:1px 5px; border-radius:4px; font-size:12px; }
   .prose ul { padding-left:20px; }
   .hidden { display:none !important; }
-
   /* ---------------- 封面 / 访问密码 ---------------- */
   .cover { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
-    padding:24px; overflow:auto;
+    padding:24px;
     background:
       radial-gradient(1200px 620px at 12% 8%, rgba(15,118,110,.55), transparent 62%),
       radial-gradient(900px 520px at 92% 96%, rgba(44,76,134,.52), transparent 60%),
       linear-gradient(160deg,#0a1118 0%,#0d1a22 55%,#08131a 100%);
-    color:#eef4f7; transition:opacity .38s ease, visibility .38s ease; }
+    transition:opacity .38s ease, visibility .38s ease; }
   .cover.off { opacity:0; visibility:hidden; pointer-events:none; }
-  .cover-card { width:min(580px,100%); padding:44px 44px 34px; border-radius:22px; text-align:center;
+  .cover-card { width:min(380px,100%); padding:20px; border-radius:18px;
     background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.12);
     box-shadow:0 30px 90px rgba(0,0,0,.5); backdrop-filter:blur(16px); }
-  .cover-kicker { font-size:11.5px; letter-spacing:.24em; color:#7fd1c4; margin-bottom:16px; text-transform:uppercase; }
-  .cover-card h2 { margin:0 0 14px; font-size:33px; line-height:1.2; letter-spacing:-.02em; font-weight:700; }
-  .cover-sub { margin:0 auto 28px; max-width:430px; font-size:13.5px; line-height:1.75; color:#b3c3cc; }
-  .cover-stats { display:flex; justify-content:center; gap:38px; margin:0 0 32px; }
-  .cover-stats div { display:flex; flex-direction:column; gap:3px; }
-  .cover-stats b { font-size:25px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-  .cover-stats span { font-size:11.5px; color:#8ea3ae; letter-spacing:.06em; }
-  #gateForm { display:flex; gap:8px; max-width:370px; margin:0 auto; }
-  #gatePwd { flex:1; height:44px; padding:0 15px; border-radius:11px; border:1px solid rgba(255,255,255,.18);
-    background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:14px; outline:none; }
+  #gateForm { display:flex; gap:8px; }
+  #gatePwd { flex:1; height:46px; padding:0 16px; border-radius:12px; border:1px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.07); color:#fff; font:inherit; font-size:14px; outline:none; transition:.15s; }
   #gatePwd::placeholder { color:#7b8e98; }
   #gatePwd:focus { border-color:#2dd4bf; box-shadow:0 0 0 3px rgba(45,212,191,.16); }
-  #gateForm button { height:44px; padding:0 22px; border-radius:11px; border:0; cursor:pointer;
+  #gatePwd.bad { border-color:#f87171; box-shadow:0 0 0 3px rgba(248,113,113,.16); }
+  #gateForm button { height:46px; padding:0 24px; border-radius:12px; border:0; cursor:pointer;
     background:#0f766e; color:#fff; font:inherit; font-size:14px; font-weight:600; transition:.15s; }
   #gateForm button:hover { background:#11998e; }
-  .cover-err { height:18px; margin-top:10px; font-size:12px; color:#fca5a5; opacity:0; transition:opacity .2s; }
-  .cover-err.on { opacity:1; }
   .cover-card.shake { animation:shake .32s ease; }
   @keyframes shake { 25%{transform:translateX(-7px)} 75%{transform:translateX(7px)} }
-  .cover-note { margin-top:24px; font-size:11px; color:#6d818b; letter-spacing:.06em; }
-  @media (max-width:520px) {
-    .cover-card { padding:34px 22px 26px; }
-    .cover-card h2 { font-size:25px; }
-    .cover-stats { gap:26px; }
-    #gateForm { flex-direction:column; }
-  }
-
-
+  @media (max-width:420px) { .cover-card { padding:16px; } #gateForm { flex-direction:column; } }
 </style>
 </head>
 <body>
 
 <div class="cover" id="cover">
   <div class="cover-card" id="coverCard">
-    <div class="cover-kicker">INFERENCE PERFORMANCE MATRIX</div>
-    <h2>推理性能矩阵<br>GPU × 模型</h2>
-    <p class="cover-sub">集群吞吐与单卡吞吐两个口径，按卡型、模型逐格对照。<br>对外资料，需访问密码。</p>
-    <div class="cover-stats">
-      <div><b>6</b><span>卡型</span></div>
-      <div><b>8</b><span>模型</span></div>
-      <div><b>17</b><span>条记录</span></div>
-    </div>
     <form id="gateForm" autocomplete="off">
-      <input id="gatePwd" type="password" placeholder="请输入访问密码" aria-label="访问密码" spellcheck="false">
+      <input id="gatePwd" type="password" placeholder="访问密码" aria-label="访问密码" spellcheck="false">
       <button type="submit">进入</button>
     </form>
-    <div class="cover-err" id="gateErr">密码不对，再试一次</div>
-    <div class="cover-note">如需完整明细或口径说明，请联系数据提供方</div>
   </div>
 </div>
 <div class="wrap">
@@ -704,7 +677,6 @@ renderAll();
   var card = document.getElementById("coverCard");
   var form = document.getElementById("gateForm");
   var input = document.getElementById("gatePwd");
-  var err = document.getElementById("gateErr");
 
   function sha256(ascii) {
     function rightRotate(v, a) { return (v >>> a) | (v << (32 - a)); }
@@ -759,15 +731,15 @@ renderAll();
 
   try { if (sessionStorage.getItem(KEY) === "1") { unlock(); return; } } catch (e) {}
 
+  input.addEventListener("input", function () { input.classList.remove("bad"); });
   form.addEventListener("submit", function (ev) {
     ev.preventDefault();
     var norm = input.value.toLowerCase().replace(/[^a-z0-9]/g, "");
     if (norm && sha256(norm) === PASS_SHA256) {
       try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
-      err.classList.remove("on");
       unlock();
     } else {
-      err.classList.add("on");
+      input.classList.add("bad");
       card.classList.remove("shake");
       void card.offsetWidth;
       card.classList.add("shake");
